@@ -1,0 +1,85 @@
+# Academic Radar 配置文件（PRD §2.3）
+# 修改后下次 cron 运行自动生效，无需重启。
+
+# ===== 研究方向关键词 =====
+# 命中至少一个才进入评分流程
+topics:
+  en:
+    - "radiotherapy immunotherapy"
+    - "immune checkpoint inhibitor radiation"
+    - "FLASH radiotherapy"
+    - "cGAS-STING radiation"
+    - "abscopal effect"
+    # 按需添加
+  zh:
+    - "放疗 免疫治疗"
+    - "FLASH放疗"
+    - "免疫原性细胞死亡"
+    # 按需添加
+
+# 研究方向简述（用于 LLM 评分 prompt，PRD §2.4 Step 2）
+research_focus: |
+  放疗与免疫治疗联合，重点关注 FLASH 放疗、免疫检查点抑制剂联合放疗、
+  cGAS-STING 通路、远隔效应等机制与临床转化。
+
+# ===== 追踪作者/机构 =====
+# 命中即保留，不需同时命中 topic
+authors:
+  - "Last F"          # 按需替换为目标作者
+  # - "机构名称"      # 也可追踪机构
+
+# ===== 排除词 =====
+exclude:
+  - "veterinary"
+  - "dental"
+  - "pediatric"
+
+# ===== 运行模式 =====
+mode: daily         # daily / conference
+
+# ===== 时区 =====
+timezone: "Asia/Shanghai"
+
+# ===== 数据源开关 =====
+sources:
+  pubmed: true
+  semantic_scholar: true
+  openalex: true
+  biorxiv: true
+  medrxiv: true
+  x_search: true
+  rss: true
+
+# ===== API 配置 =====
+api_keys:
+  pubmed_api_key: ""          # 可选，填写后提高请求频率
+  semantic_scholar_key: ""    # 可选，填写后提高请求频率
+  openalex_mailto: ""         # 填写邮箱进入 polite pool
+  crossref_mailto: ""         # 同上
+
+# ===== LLM 配置（OpenAI 兼容格式） =====
+llm:
+  base_url: "https://api.openai.com/v1"
+  api_key: ""
+  model: "gpt-4o-mini"
+  timeout: 30
+
+# ===== RSS 订阅 =====
+rss_feeds: []
+  # - name: "期刊名称"
+  #   url: "https://..."
+
+# ===== 推送渠道 =====
+push:
+  channel: "webhook"          # webhook / telegram / slack / email
+  webhook_url: ""
+  # telegram_bot_token: ""
+  # telegram_chat_id: ""
+
+# ===== 输出限制 =====
+output:
+  max_items: 15               # PRD §2.4 Step 6
+  format: "plain"             # plain / markdown
+
+# ===== 存档保留天数 =====
+archive_retention_days: 30

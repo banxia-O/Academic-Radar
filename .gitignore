@@ -1,0 +1,23 @@
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+.env
+.env.*
+*.log
+
+# 运行时状态（PRD §2.1 / §3）
+state/last_success_ts
+state/last_valid_config.yaml
+
+# 推送存档（PRD §2.6，按 retention 自动清理）
+data/radar/*.json
+data/radar/errors/*.json
+!data/radar/.gitkeep
+!data/radar/errors/.gitkeep
+
+# IDE
+.idea/
+.vscode/
+*.swp
