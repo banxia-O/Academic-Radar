@@ -1,9 +1,9 @@
 """输出格式化（PRD §2.5）。
 
 默认纯文本（适配微信等不支持 markdown 的平台）。
-头部包含：抓取范围、各源命中数统计、命中总数。
-每条包含：发表状态 emoji + 相关性、标题、作者、期刊/来源、DOI、引用数、核心发现、来源标注。
-0 条时输出 "今日无新增"；超过 max_items 时截断并标注 "另有 N 条未展示"。
+头部：抓取时间范围、各源命中数、命中总数。
+条目：发表状态 emoji + 相关性分、标题、作者、期刊/来源、DOI/链接、引用数、核心发现、数据来源。
+0 条时输出"今日无新增"；超过 max_items 时截断并标注"另有 N 条未展示"。
 """
 from __future__ import annotations
 
@@ -26,12 +26,110 @@ def format_message(
     until: datetime,
     config: dict,
 ) -> str:
-    raise NotImplementedError
+    max_items = config.get("output", {}).get("max_items", 15)
+    display = items[:max_items]
+    truncated = len(items) - len(display)
 
+    sections: list[str] = [format_header(stats, since, until, len(display))]
 
-def format_item(item: Item, idx: int) -> str:
-    raise NotImplementedError
+    if not display:
+        sections.append("今日无新增")
+    else:
+        for i, item in enumerate(display, 1):
+            sections.append(format_item(item, i))
+
+    footer_lines: list[str] = ["———"]
+    if truncated > 0:
+        footer_lines.append(f"另有 {truncated} 条未展示，回复「更多」查看")
+
+    kw_version = config.get("_config_mtime", "")
+    if kw_version:
+        footer_lines.append(f"关键词版本: {kw_version}")
+
+    next_run = _next_run_hint(config)
+    if next_run:
+        footer_lines.append(f"下次抓取: {next_run}")
+
+    sections.append("\n".join(footer_lines))
+    return "\n\n".join(sections)
 
 
 def format_header(stats: FetchStats, since: datetime, until: datetime, hits: int) -> str:
-    raise NotImplementedError
+    now_str = datetime.now().strftime("%m-%d %H:%M")
+    biorxiv_total = stats.biorxiv_searched + stats.medrxiv_searched
+    lines = [
+        f"📡 学术雷达 {now_str}",
+        f"抓取范围：{since.strftime('%m-%d %H:%M')} ~ {until.strftime('%m-%d %H:%M')}",
+        (
+            f"PubMed: {stats.pubmed_searched} | "
+            f"S2: {stats.semantic_scholar_searched} | "
+            f"OpenAlex: {stats.openalex_searched} | "
+            f"bioRxiv: {biorxiv_total} | "
+            f"X: {stats.x_searched} | "
+            f"RSS: {stats.rss_processed}"
+        ),
+        f"命中: {hits} 条",
+        "\n———",
+    ]
+    return "\n".join(lines)
+
+
+def format_item(item: Item, idx: int) -> str:
+    status_label = STATUS_EMOJI.get(item.status, "❓Unverified")
+    score = item.relevance_score if item.relevance_score is not None else "?"
+    lines = [f"{idx}. {status_label} | 相关性:{score}"]
+
+    lines.append(f"标题: {item.title}")
+
+    if item.authors:
+        authors_str = ", ".join(item.authors[:3])
+        if len(item.authors) > 3:
+            authors_str += ", et al."
+        lines.append(f"作者: {authors_str}")
+
+    if item.source_journal:
+        year = (item.publication_date or "")[:4]
+        lines.append(f"期刊: {item.source_journal}" + (f", {year}" if year else ""))
+
+    if item.doi:
+        lines.append(f"DOI: {item.doi}")
+    elif item.url:
+        lines.append(f"链接: {item.url}")
+
+    if item.citation_count is not None:
+        src_abbr = (item.citation_source or "").upper()[:2] or "?"
+        lines.append(f"引用: {item.citation_count} ({src_abbr})")
+
+    if item.summary:
+        lines.append(f"核心发现: {item.summary}")
+    elif item.tldr:
+        lines.append(f"核心发现: {item.tldr}")
+
+    sources_str = " + ".join(item.fetch_sources)
+    if item.x_links:
+        handles = [
+            lnk.split("x.com/")[1].split("/")[0]
+            for lnk in item.x_links
+            if "x.com/" in lnk
+        ]
+        if handles:
+            sources_str += f" + X(@{handles[0]} 讨论)"
+    lines.append(f"来源: {sources_str}")
+
+    if item.status == "preprint":
+        is_published = item.doi_verify_method == "biorxiv_published_field"
+        lines.append(f"正式发表: {'已检出' if is_published else '未检出'}")
+
+    return "\n".join(lines)
+
+
+def _next_run_hint(config: dict) -> str:
+    mode = config.get("mode", "daily")
+    if mode == "conference":
+        return "4 小时后"
+    now = datetime.now()
+    if now.hour < 8:
+        return "08:00"
+    if now.hour < 20:
+        return "20:00"
+    return "明日 08:00"

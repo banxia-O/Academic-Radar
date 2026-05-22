@@ -3,7 +3,7 @@
 排序键（依次降序）：
   1) 发表状态优先级：published > preprint > conference > unverified
   2) 相关性评分（5 → 1）
-  3) 发布时间（新 → 旧）
+  3) 发布时间（新 → 旧，ISO 字符串可直接比较）
 """
 from __future__ import annotations
 
@@ -13,4 +13,12 @@ STATUS_PRIORITY = {"published": 3, "preprint": 2, "conference": 1, "unverified":
 
 
 def sort_items(items: list[Item]) -> list[Item]:
-    raise NotImplementedError
+    return sorted(
+        items,
+        key=lambda x: (
+            STATUS_PRIORITY.get(x.status, 0),
+            x.relevance_score or 0,
+            x.publication_date or "",
+        ),
+        reverse=True,
+    )
