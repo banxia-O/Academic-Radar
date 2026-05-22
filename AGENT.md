@@ -71,6 +71,11 @@ pip install -r requirements.txt
 
 6. "推送到哪里？微信群机器人 webhook / Telegram / Slack / 邮件？"
    → 写入 config.push 整段
+
+7. **LLM 模型自查 + 让用户选**（你来主导，**不要直接让用户填 key**）
+   → 先自查环境里**已配好 API key** 的 LLM provider（env / 框架 registry / 本地服务）
+   → 把可用 provider + 推荐模型 + 价格档位列给用户选（详细步骤 §2.4）
+   → 用户选完后写入 `config.llm`
 ```
 
 ### 2.2 关键词质量校准
@@ -89,6 +94,88 @@ pip install -r requirements.txt
 - 命中 `topics.en` **或** `authors` **任一即通过**；命中 `exclude` **任一即丢弃**
 
 如果用户希望 OR 关系，让他们写成多行（一行一个 topic）。
+
+### 2.4 LLM 模型自查（步骤 7 展开）
+
+**先自查，再问用户**——用户大概率不知道自己机器上有哪些 API key。
+
+#### 自查顺序
+
+1. **环境变量**（覆盖 90% 场景）
+   ```bash
+   env | grep -iE "_API_KEY|_API_TOKEN" | sed 's/=.*/=<set>/' | sort
+   ```
+   常见命名：`OPENAI_API_KEY`、`ANTHROPIC_API_KEY`、`DEEPSEEK_API_KEY`、`MOONSHOT_API_KEY`、`DASHSCOPE_API_KEY`（通义）、`ZHIPUAI_API_KEY`（智谱）、`GROQ_API_KEY`、`MISTRAL_API_KEY`
+
+2. **Agent 框架自带的 model registry**（看运行环境）
+   - Claude Code: `~/.claude/settings.json` 的 `env` / `apiKeyHelper`
+   - Hermes / LangChain / 自建: 看框架自己的 model providers 配置
+   - LlamaIndex / 项目本地: 看 `.env`
+
+3. **本地 OpenAI 兼容服务**
+   ```bash
+   curl -fsS http://localhost:11434/v1/models 2>/dev/null && echo "→ Ollama 在 11434"
+   curl -fsS http://localhost:8000/v1/models  2>/dev/null && echo "→ vLLM 在 8000"
+   ```
+
+4. **全没找到 → 直接告诉用户**：
+   > "这台机器没找到现成的 LLM API key。你需要先去申请一个（OpenAI / DeepSeek / 月之暗面 / 智谱 任选一家），拿到 key 再回来我帮你填。"
+
+   **不要**编 endpoint，**不要**写假 key 进 config。
+
+#### 呈现选项给用户（不要泄漏 key 本身）
+
+```
+我自查到这台机器可用的 LLM provider：
+
+1. OpenAI（OPENAI_API_KEY 已设置）
+   推荐：gpt-4o-mini，约 ¥0.x/天
+2. DeepSeek（DEEPSEEK_API_KEY 已设置）
+   推荐：deepseek-chat，约 ¥0.0x/天（最便宜）
+3. Ollama 本地（qwen2.5:7b）
+   免费，跑本机 GPU/CPU
+
+评分任务很简单，建议选 2 或 3（详见 §5 决策树）。用哪个？
+```
+
+#### 写入 config
+
+用户选完后，**只改** `academic_radar_config.yaml` 的 `llm:` 段。常见 `base_url`：
+
+| Provider | base_url |
+|----------|----------|
+| OpenAI | `https://api.openai.com/v1` |
+| DeepSeek | `https://api.deepseek.com/v1` |
+| Moonshot (Kimi) | `https://api.moonshot.cn/v1` |
+| 通义 DashScope | `https://dashscope.aliyuncs.com/compatible-mode/v1` |
+| 智谱 BigModel | `https://open.bigmodel.cn/api/paas/v4` |
+| Groq | `https://api.groq.com/openai/v1` |
+| Ollama 本地 | `http://localhost:11434/v1` |
+| vLLM 本地 | `http://localhost:8000/v1` |
+
+写完跑一个 smoke test 确认 key 真能用：
+
+```bash
+python3 -c "
+from openai import OpenAI; import yaml
+cfg = yaml.safe_load(open('academic_radar_config.yaml'))['llm']
+r = OpenAI(base_url=cfg['base_url'], api_key=cfg['api_key']).chat.completions.create(
+    model=cfg['model'], messages=[{'role':'user','content':'reply with just OK'}], max_tokens=5)
+print(r.choices[0].message.content)
+"
+```
+
+输出非 "OK" 或报错 → 回到自查步骤 4，让用户换一个 provider。**不要**带着错的 key 装 cron。
+
+#### Key 安全提示
+
+- `radar_main.load_config()` 用 `yaml.safe_load`，**不展开 env 变量**——key 必须明文写进 yaml（写 `${OPENAI_API_KEY}` 会当字面字符串）
+- 让用户对 config 文件加权限：`chmod 600 academic_radar_config.yaml`
+- `.gitignore` **没有**忽略这个 yaml（PRD 把它当模板需要版本化）。如果用户 repo 是公开的，建议执行：
+  ```bash
+  git update-index --assume-unchanged academic_radar_config.yaml
+  ```
+- 如果用户强烈要求从 env 读 key：这是 §3 黄色等级改动（要改 `radar_main.load_config()`），改完跑一遍 §8 反幻觉自查
 
 ---
 
