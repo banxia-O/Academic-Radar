@@ -34,8 +34,13 @@ exclude:
   - "dental"
   - "pediatric"
 
-# ===== 运行模式 =====
-mode: daily         # daily / conference
+# ===== 检索频率（PRD §2.1）=====
+# 脚本自节流：cron 触发后若距上次成功不足 frequency×0.9 则自动跳过，
+# 所以多数频率改这里即可生效，不必重装 cron（详见 AGENT.md §4）。
+schedule:
+  frequency: daily          # twice_daily | daily | every_3_days | weekly | biweekly | monthly | every_4_hours | custom
+  custom_days: 7            # 正整数，仅 frequency:custom 时生效
+  times: ["08:00"]          # 检索运行时间（HH:MM 24h 制）；twice_daily 时填两个；every_4_hours 时忽略
 
 # ===== 时区 =====
 timezone: "Asia/Shanghai"

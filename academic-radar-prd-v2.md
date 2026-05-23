@@ -15,10 +15,18 @@
 ### 2.1 定时触发
 
 - 通过 cron 或 Agent 内置调度触发，脚本层不消耗 LLM token
-- 日常模式：每天 08:00 / 20:00（时区可配置）
-- 会议模式：每 4 小时一次，手动开启/关闭（通过配置文件切换）
-- 每次运行记录时间戳到本地文件 `last_success_ts`
-- 下次抓取起点 = max(上次成功时间, 当前时间 - 48h)
+- 用户在 `academic_radar_config.yaml` 的 `schedule:` 段选择频率：
+  - `daily` — 每天一次（默认）
+  - `every_3_days` / `weekly` / `biweekly` — 每 3 天 / 每周 / 每 2 周
+  - `monthly` — 每月 1 号一次
+  - `custom` + `custom_days: N` — 每 N 天一次
+  - `twice_daily` — 一天两次（如 08:00 + 20:00），活跃领域用
+  - `every_4_hours` — 会议密集期临时用，4 小时一次
+- 检索时间点（`times` 字段，HH:MM 24h 制）由用户在引导阶段选定；时区可配置
+- 每次成功运行记录时间戳到本地文件 `state/last_success_ts`
+- **脚本自节流**：cron 触发时若 `now - last_success < frequency × 0.9`，直接退出不抓——多数频率因此只需一个每天的 cron，换频率只改 config
+- **时间窗口**：抓取起点 = max(上次成功时间, 当前时间 - 频率 × 3)，cap 防长期离线后窗口爆炸
+- **首次运行**：起点 = 当前时间 - min(频率间隔, 7 天)，避免月度等长周期新装时拉超大窗口
 
 ### 2.2 信息抓取
 
@@ -128,8 +136,11 @@ exclude:
   - "dental"
   - "pediatric"
 
-# ===== 运行模式 =====
-mode: daily         # daily / conference
+# ===== 检索频率 =====
+schedule:
+  frequency: daily          # twice_daily | daily | every_3_days | weekly | biweekly | monthly | every_4_hours | custom
+  custom_days: 7            # 正整数，仅 frequency:custom 时生效
+  times: ["08:00"]          # 检索运行时间（HH:MM）；twice_daily 时填两个；every_4_hours 时忽略
 
 # ===== 时区 =====
 timezone: "Asia/Shanghai"
