@@ -238,7 +238,7 @@ schedule:
 | 🔴 **不要动** | `fetchers/*.py` | 数据源 API 契约。除非用户明确要求"加一个新数据源"或"某个 API 升级了"，否则不要碰。改坏一个 fetcher 会让该源全部失败。 |
 | 🔴 **不要动** | `models.py` | 流水线数据 schema。所有模块共享。改一个字段名等于改 N 处。 |
 | 🔴 **不要动** | `processors/doi_validator.py` | 反幻觉防线之一。`TRUSTED_SOURCES` 白名单错改一处会让所有 DOI 标错状态。 |
-| 🔴 **不要动** | `processors/dedup.py` | 多源合并逻辑。改 `SOURCE_PRIORITY` 会改变主条目选取。 |
+| 🔴 **不要动** | `processors/dedup.py` | 多源合并逻辑 + 跨周期去重指纹算法。改 `SOURCE_PRIORITY` 会改变主条目选取；改指纹算法会让历史去重失效。**跨周期去重的开关/回溯天数在 config 里调，不用动这个文件**。 |
 | 🔴 **绝对不要动** | `radar_main.py` 的流水线顺序 | 顺序错了反幻觉就破了（DOI 验证必须在 LLM 评分之后、推送之前）。 |
 | ⚫ **运行时生成，不要手改** | `state/last_success_ts`、`data/radar/*.json` | 时间戳和存档。手改会导致下次抓取窗口错乱或推送重复。 |
 
@@ -363,6 +363,7 @@ INFO semantic_scholar: 15 items
 ...
 INFO Total fetched: 89
 INFO After keyword filter: 18
+INFO Cross-period dedup: 18 → 14 (removed 4 already-seen)
 INFO After LLM scoring: 9 (errors: 0)
 INFO After dedup: 7
 INFO Archived to data/radar/2026-05-22_0800.json
@@ -418,6 +419,8 @@ B. 看 JSON 里 final_output 是否 = 0
 | "想换检索时间点（如 08:00 → 10:00）" | 改 `config.schedule.times[0]` + 重装 cron |
 | "学会议期间想多看几次" | 改 `config.schedule.frequency: every_4_hours` + 装 `0 */4 * * *` cron，会后切回 |
 | "PubMed 这两天没数据" | **先查 `data/radar/*.json` 的 stats.pubmed_searched**，再判断是真没数据还是 API 失败 |
+| "同一篇又推了一遍" | 跨周期去重应已拦截。先看 run.log 的 `Cross-period dedup` 行；若该文**无 DOI/PMID**（仅靠标题指纹），可能标题有细微差异导致漏判——属预期边界，不必硬修。也确认 `config.dedup.cross_period` 没被关掉、`lookback_days` 是否够长 |
+| "想看更久以前看过的也重新推" / "去重太狠了" | 调小 `config.dedup.lookback_days`，或设 `config.dedup.cross_period: false` 关掉跨周期去重 |
 | "推送的某条论文是假的" | **立即排查** —— 这是反幻觉防线被破。看该条的 `fetch_sources` 和 `abstract_source`，必要时打开存档 JSON 看 `raw` 字段 |
 | "我换电脑了，怎么迁移" | 把整个目录 rsync 走（包括 `state/`），重新装 cron |
 

@@ -238,6 +238,19 @@ def run_once() -> None:
     stats.after_keyword_filter = len(items)
     logger.info("After keyword filter: %d", len(items))
 
+    # Step 3.5: cross-period dedup — drop items already pushed in recent runs
+    # (runs before LLM scoring to save tokens on already-seen papers)
+    dedup_cfg = config.get("dedup", {})
+    if dedup_cfg.get("cross_period", True):
+        lookback = dedup_cfg.get("lookback_days", config.get("archive_retention_days", 30))
+        seen = dedup.load_seen_fingerprints(DATA_DIR, lookback, now)
+        before = len(items)
+        items = dedup.filter_seen(items, seen)
+        logger.info(
+            "Cross-period dedup: %d → %d (removed %d already-seen)",
+            before, len(items), before - len(items),
+        )
+
     # Step 4: LLM scoring
     items, errors = llm_scorer.score_items(items, config)
     stats.after_llm_scoring = len(items)

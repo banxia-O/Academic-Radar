@@ -182,7 +182,8 @@ push:
 - 从各 Tier 1 源拉取原始数据
 - 按 topics 关键词初筛（至少命中一个），或命中 authors 列表
 - 排除 exclude 关键词命中的条目
-- 初筛在脚本层完成，不消耗 LLM token
+- **跨周期去重**：比对近 `dedup.lookback_days` 天的存档（历史已推送条目）指纹（DOI > PMID > arXiv > 规范化标题），命中即剔除——避免窗口边界 / 预印本延迟索引导致重复推送
+- 初筛与跨周期去重均在脚本层完成，不消耗 LLM token（已推送过的文章不再进评分）
 
 #### Step 2: LLM 相关性评分
 
@@ -222,12 +223,13 @@ push:
 - 每条输出必须携带 fetch_source 字段标注数据来源 API
 - 若 LLM 评分返回格式异常，该条目进入 errors 日志，不进入推送
 
-#### Step 4: 去重与合并
+#### Step 4: 去重与合并（单次运行内）
 
 - 有 DOI 的按 DOI 去重，优先保留 PubMed 版本（元数据最规范）
 - 有 PMID 的按 PMID 去重
 - 无 DOI/PMID 的按标题相似度去重（阈值 ≥80%，可用 Levenshtein 或 Jaccard）
 - 同一研究的多源信息合并为一条（如 PubMed 元数据 + Semantic Scholar 引用数 + X 讨论链接）
+- 注：跨**周期**（与历史已推送条目）的去重在 Step 1 完成，本步只处理本次运行内的多源重复
 
 #### Step 5: 排序
 
