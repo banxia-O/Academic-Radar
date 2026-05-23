@@ -86,5 +86,12 @@ output:
   max_items: 15               # PRD §2.4 Step 6
   format: "plain"             # plain / markdown
 
+# ===== 跨周期去重 =====
+# 避免把上次已推送的文章再推一遍（窗口边界、预印本延迟索引时常见）。
+# 评分前先比对近 lookback_days 天的存档，命中则直接跳过（不进 LLM，省 token）。
+dedup:
+  cross_period: true
+  lookback_days: 30           # 回溯天数；受 archive_retention_days 限制（存档已删的查不到）
+
 # ===== 存档保留天数 =====
 archive_retention_days: 30
