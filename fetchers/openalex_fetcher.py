@@ -75,7 +75,7 @@ def _fetch_works(query: str, since: datetime, until: datetime, mailto: str) -> l
 def _fetch_by_author(author_name: str, since: datetime, until: datetime, mailto: str) -> list[Item]:
     params: dict = {
         "filter": (
-            f"author.display_name.search:{author_name},"
+            f"raw_author_name.search:{author_name},"
             f"from_publication_date:{since.strftime('%Y-%m-%d')},"
             f"to_publication_date:{until.strftime('%Y-%m-%d')}"
         ),
