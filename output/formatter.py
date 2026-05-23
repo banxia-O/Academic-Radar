@@ -124,12 +124,32 @@ def format_item(item: Item, idx: int) -> str:
 
 
 def _next_run_hint(config: dict) -> str:
-    mode = config.get("mode", "daily")
-    if mode == "conference":
+    sched = config.get("schedule", {})
+    freq = sched.get("frequency", "daily")
+    times = sched.get("times") or ["08:00"]
+    primary = times[0]
+
+    if freq == "every_4_hours":
         return "4 小时后"
-    now = datetime.now()
-    if now.hour < 8:
-        return "08:00"
-    if now.hour < 20:
-        return "20:00"
-    return "明日 08:00"
+    if freq == "monthly":
+        return f"下月 1 号 {primary}"
+
+    if freq == "twice_daily":
+        now_hm = datetime.now().strftime("%H:%M")
+        upcoming = sorted(t for t in times if t > now_hm)
+        if upcoming:
+            return upcoming[0]
+        return f"明日 {sorted(times)[0]}"
+
+    interval_days = {
+        "daily": 1,
+        "every_3_days": 3,
+        "weekly": 7,
+        "biweekly": 14,
+        "custom": sched.get("custom_days", 7),
+    }.get(freq, 1)
+
+    if interval_days == 1:
+        now_hm = datetime.now().strftime("%H:%M")
+        return primary if primary > now_hm else f"明日 {primary}"
+    return f"{interval_days} 天后 {primary}"

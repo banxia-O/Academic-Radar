@@ -76,6 +76,11 @@ pip install -r requirements.txt
    → 先自查环境里**已配好 API key** 的 LLM provider（env / 框架 registry / 本地服务）
    → 把可用 provider + 推荐模型 + 价格档位列给用户选（详细步骤 §2.4）
    → 用户选完后写入 `config.llm`
+
+8. **检索频率 + 时间点**（你来主导，给菜单）
+   → 先问"你这个领域大概多久出一篇相关新文章？"，据回答推荐频率
+   → 给完整菜单让用户选频率 + 检索时间点（详细步骤 §2.5）
+   → 写入 `config.schedule.frequency` / `custom_days` / `times`
 ```
 
 ### 2.2 关键词质量校准
@@ -177,13 +182,57 @@ print(r.choices[0].message.content)
   ```
 - 如果用户强烈要求从 env 读 key：这是 §3 黄色等级改动（要改 `radar_main.load_config()`），改完跑一遍 §8 反幻觉自查
 
+### 2.5 检索频率向导（步骤 8 展开）
+
+不同领域文章产出速度差异大。**先问一句"你这个领域大概多久出一篇相关新文章"再推荐**，不要默认 daily 一刀切。
+
+#### 推荐表
+
+| 用户回答 | 推荐 frequency |
+|---------|----------------|
+| 每天都有好几篇 | `daily`（默认）；特别活跃可 `twice_daily` |
+| 每周几篇 | `every_3_days` 或 `weekly` |
+| 每月几篇 | `biweekly` 或 `monthly` |
+| 几个月才一篇 | `monthly` 或 `custom`（`custom_days: 60` 起） |
+| 开会期间（ASCO/ASTRO/ESMO 等） | `every_4_hours`（"会议模式"，临时切，会后切回） |
+
+#### 给用户看的菜单
+
+```
+你想多久检索一次？
+
+1. 每日一次（默认）
+2. 每 3 天一次
+3. 每周一次
+4. 每 2 周一次
+5. 每月 1 号一次
+6. 自定义：每 N 天一次
+7. 一天 2 次（如 08:00 + 20:00）—— 适合大热门领域
+8. 每 4 小时一次（会议密集期临时用）
+
+你选几号？什么时间点跑？（默认 08:00）
+```
+
+#### 写入 config
+
+```yaml
+schedule:
+  frequency: weekly       # 用户选项 → 这里
+  custom_days: 7          # 仅 frequency:custom 时填
+  times: ["08:00"]        # 用户选的时间点；twice_daily 时填两个，如 ["08:00", "20:00"]
+```
+
+#### 自适应调度（关键设计）
+
+脚本基于 `state/last_success_ts` 和 `frequency` **自我节流**：cron 触发后若距上次成功不足 `frequency × 0.9`，直接退出不抓。因此**多数频率只需装一个每天的 cron**，用户日后换频率（如 weekly → daily）**只改 config 不动 cron**。cron 模板与例外见 §4。
+
 ---
 
 ## 3. 文件修改边界（务必遵守）
 
 | 等级 | 文件 | 你能做什么 |
 |------|------|------------|
-| 🟢 **自由编辑** | `academic_radar_config.yaml` | 关键词、作者、排除词、推送渠道、API key、运行模式、时区——全部用户可见配置都在这里。**99% 的用户需求都改这一个文件**。 |
+| 🟢 **自由编辑** | `academic_radar_config.yaml` | 关键词、作者、排除词、推送渠道、API key、检索频率（`schedule`）、时区——全部用户可见配置都在这里。**99% 的用户需求都改这一个文件**。 |
 | 🟡 **谨慎编辑** | `processors/llm_scorer.py` 的 `build_prompt()` | 评分 prompt 模板。改的时候**必须保留反幻觉约束**（见下节）。改完跑一次 `python3 radar_main.py` 校验。 |
 | 🟡 **谨慎编辑** | `output/formatter.py` 的 `format_item()` | 推送展示格式。可以加字段、改 emoji，但**不能凭空生成 item 没有的字段**。 |
 | 🔴 **不要动** | `fetchers/*.py` | 数据源 API 契约。除非用户明确要求"加一个新数据源"或"某个 API 升级了"，否则不要碰。改坏一个 fetcher 会让该源全部失败。 |
@@ -209,36 +258,43 @@ print(r.choices[0].message.content)
 
 ## 4. Cron 设置
 
-### 4.1 日常模式（PRD §2.1 默认）
+### 4.1 cron 模板（按 frequency 选）
 
-每天 08:00 和 20:00 各跑一次：
+**关键**：脚本会按 `config.schedule.frequency` 自我节流（cron 触发后距上次成功不足 `frequency × 0.9` 就早退出），所以大多数频率**只需装一个每天的 cron**，脚本自己跳过不该跑的日子。
+
+| frequency | cron 表达式 | 自节流参与 |
+|-----------|------------|-----------|
+| `daily` | `M H * * *` | ✓（24×0.9=21.6h） |
+| `every_3_days` | `M H * * *` | ✓（约 65h） |
+| `weekly` | `M H * * *` | ✓（约 151h） |
+| `biweekly` | `M H * * *` | ✓（约 302h） |
+| `custom`（N 天） | `M H * * *` | ✓（N×24×0.9） |
+| `monthly` | `M H 1 * *` | ✗（cron 锁死每月 1 号） |
+| `twice_daily` | `0 H1,H2 * * *` | ✗（兜底 12×0.9=10.8h） |
+| `every_4_hours` | `0 */4 * * *` | ✓（兜底 3.6h） |
+
+其中 `M`/`H` = `times[0]` 的分钟/小时；`twice_daily` 的 `H1`/`H2` 来自 `times[0]`/`times[1]`。
+
+完整命令模板（以每天 08:00、daily 为例）：
 
 ```cron
-0 8,20 * * * cd ~/academic-radar && /usr/bin/python3 radar_main.py >> ~/academic-radar/run.log 2>&1
+0 8 * * * cd ~/academic-radar && /usr/bin/python3 radar_main.py >> ~/academic-radar/run.log 2>&1
 ```
 
-### 4.2 会议模式（开会期间临时启用）
+按上表替换 `0 8`（分钟 小时）和 day-of-month 部分即可。
 
-每 4 小时一次：
-
-```cron
-0 */4 * * * cd ~/academic-radar && /usr/bin/python3 radar_main.py >> ~/academic-radar/run.log 2>&1
-```
-
-同时把 `academic_radar_config.yaml` 里的 `mode: daily` 改成 `mode: conference`（影响推送底部的"下次抓取"提示文本）。
-
-### 4.3 时区处理
+### 4.2 时区处理
 
 cron 跑在系统时区，但脚本内部按 `config.timezone` 计算时间窗口。**改了 config.timezone 不需要改 cron**——脚本会自己处理。
 
-### 4.4 安装 cron 的标准流程
+### 4.3 安装 cron 的标准流程
 
 ```bash
 # 查看当前 crontab
 crontab -l
 
 # 编辑（追加，不要覆盖用户已有任务）
-(crontab -l 2>/dev/null; echo "0 8,20 * * * cd ~/academic-radar && /usr/bin/python3 radar_main.py >> ~/academic-radar/run.log 2>&1") | crontab -
+(crontab -l 2>/dev/null; echo "0 8 * * * cd ~/academic-radar && /usr/bin/python3 radar_main.py >> ~/academic-radar/run.log 2>&1") | crontab -
 
 # 验证
 crontab -l | grep academic-radar
@@ -246,9 +302,22 @@ crontab -l | grep academic-radar
 
 ⚠️ 用 venv 时把 `/usr/bin/python3` 换成 `~/academic-radar/.venv/bin/python3`。
 
+### 4.4 用户换频率怎么办
+
+绝大部分情况 **只改 `config.schedule.frequency`，不动 cron**（脚本自节流会适配）。
+
+需要重装 cron 的例外：
+
+- 换 `times`（检索时间点变了，如 08:00 → 10:00）→ 重装（H:M 变了）
+- `monthly` ↔ 其他 → 重装（特殊日期 `1 * *`）
+- `every_4_hours` ↔ 其他 → 重装（cron 表达式不同）
+- `twice_daily` ↔ 其他单点频率 → 重装（多/少一个时间点）
+
+每次重装提醒用户 `crontab -l` 检查没有遗留旧行。
+
 ### 4.5 Agent 自带调度器
 
-如果运行环境是 Hermes / AutoGPT / 自建 Agent 框架，用框架的定时器（如 Hermes 的 `scheduler.add_job(cron="0 8,20 * * *")`）调用 `radar_main.run_once()` 即可，**不要混用 cron + Agent scheduler**。
+如果运行环境是 Hermes / AutoGPT / 自建 Agent 框架，用框架的定时器（如 Hermes 的 `scheduler.add_job(cron="0 8 * * *")`）调用 `radar_main.run_once()` 即可，**不要混用 cron + Agent scheduler**。
 
 ---
 
@@ -345,7 +414,9 @@ B. 看 JSON 里 final_output 是否 = 0
 | "换成 Telegram 推送" | 改 `config.push.channel: telegram`，填 bot_token + chat_id |
 | "暂时停掉 RSS 不要看了" | 改 `config.sources.rss: false`（不要删 `rss_feeds`） |
 | "推送太多了" | 改 `config.output.max_items` 从 15 调到 10 |
-| "学会议期间想多看几次" | 改 `config.mode: conference` + 改 cron 到 `0 */4 * * *` |
+| "想换检索频率（如每天 → 每周）" | 改 `config.schedule.frequency`（多数情况不动 cron，详见 §4.4） |
+| "想换检索时间点（如 08:00 → 10:00）" | 改 `config.schedule.times[0]` + 重装 cron |
+| "学会议期间想多看几次" | 改 `config.schedule.frequency: every_4_hours` + 装 `0 */4 * * *` cron，会后切回 |
 | "PubMed 这两天没数据" | **先查 `data/radar/*.json` 的 stats.pubmed_searched**，再判断是真没数据还是 API 失败 |
 | "推送的某条论文是假的" | **立即排查** —— 这是反幻觉防线被破。看该条的 `fetch_sources` 和 `abstract_source`，必要时打开存档 JSON 看 `raw` 字段 |
 | "我换电脑了，怎么迁移" | 把整个目录 rsync 走（包括 `state/`），重新装 cron |

@@ -41,6 +41,21 @@ ERRORS_DIR = DATA_DIR / "errors"
 LAST_SUCCESS_FILE = STATE_DIR / "last_success_ts"
 LAST_VALID_CONFIG = STATE_DIR / "last_valid_config.yaml"
 
+# 各频率对应的间隔小时数（PRD §2.1）。custom 单独按 custom_days 计算。
+FREQUENCY_HOURS = {
+    "every_4_hours": 4,
+    "twice_daily": 12,
+    "daily": 24,
+    "every_3_days": 72,
+    "weekly": 168,
+    "biweekly": 336,
+    "monthly": 720,
+}
+# 自节流阈值：已过时间 ≥ 频率 × 此比例才真正抓取，给 cron 触发留出抖动余量。
+THROTTLE_RATIO = 0.9
+# 首次运行最多回看的小时数（7 天），避免月度等长周期新装时拉超大窗口。
+FIRST_RUN_CAP_HOURS = 168
+
 
 def load_config(path: Path = CONFIG_PATH) -> dict:
     """加载 YAML 配置。失败时回退到 state/last_valid_config.yaml 并告警（PRD §3）。"""
@@ -61,11 +76,33 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
         raise
 
 
-def compute_time_window(now: datetime, last_success: datetime | None) -> tuple[datetime, datetime]:
-    """PRD §2.1：起点 = max(上次成功时间, now - 48h)，终点 = now。"""
-    floor = now - timedelta(hours=48)
-    since = max(last_success, floor) if last_success else floor
-    return since, now
+def frequency_hours(config: dict) -> float:
+    """从 config.schedule 解析检索频率对应的间隔小时数（PRD §2.1）。"""
+    sched = config.get("schedule", {})
+    freq = sched.get("frequency", "daily")
+    if freq == "custom":
+        return sched.get("custom_days", 7) * 24
+    return FREQUENCY_HOURS.get(freq, 24)
+
+
+def should_run_now(last_success: datetime | None, freq_hours: float, now: datetime) -> bool:
+    """自节流：cron 触发时若距上次成功不足频率的 THROTTLE_RATIO，则跳过本次（PRD §2.1）。"""
+    if last_success is None:
+        return True
+    elapsed = (now - last_success).total_seconds() / 3600
+    return elapsed >= freq_hours * THROTTLE_RATIO
+
+
+def compute_time_window(
+    now: datetime, last_success: datetime | None, freq_hours: float
+) -> tuple[datetime, datetime]:
+    """PRD §2.1：终点 = now。
+    起点 = max(上次成功时间, now - 频率×3)；首次运行回看 min(频率, 7 天)。
+    """
+    if last_success is None:
+        return now - timedelta(hours=min(freq_hours, FIRST_RUN_CAP_HOURS)), now
+    floor = now - timedelta(hours=freq_hours * 3)
+    return max(last_success, floor), now
 
 
 def read_last_success() -> datetime | None:
@@ -175,7 +212,19 @@ def run_once() -> None:
         tz = timezone.utc
 
     now = datetime.now(tz)
-    since, until = compute_time_window(now, read_last_success())
+    freq_hours = frequency_hours(config)
+    last_success = read_last_success()
+
+    if not should_run_now(last_success, freq_hours, now):
+        elapsed = (now - last_success).total_seconds() / 3600
+        logger.info(
+            "Throttled: only %.1fh elapsed, need %.1fh — skipping",
+            elapsed,
+            freq_hours * THROTTLE_RATIO,
+        )
+        return
+
+    since, until = compute_time_window(now, last_success, freq_hours)
     logger.info("Window: %s → %s", since.isoformat(), until.isoformat())
 
     stats = FetchStats()
