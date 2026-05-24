@@ -57,6 +57,40 @@ THROTTLE_RATIO = 0.9
 FIRST_RUN_CAP_HOURS = 168
 
 
+def _clean_keywords(values: list) -> list[str]:
+    """去空白、去空串、去重（保序）。"""
+    seen: set[str] = set()
+    out: list[str] = []
+    for v in values or []:
+        v = (str(v) if v is not None else "").strip()
+        if v and v not in seen:
+            seen.add(v)
+            out.append(v)
+    return out
+
+
+def normalize_topics(topics: dict) -> dict:
+    """归一化为 {en: [...], zh: [...]}，供下游各 fetcher / keyword_filter 统一消费。
+
+    同时支持两种写法：
+      - 扁平：topics.en / topics.zh
+      - 六层嵌套：topics.disease/therapeutics/clinical_trials/mechanisms/diagnostics
+        每层带各自的 en / zh —— 见 keyword_template.yaml
+    嵌套子类的 en/zh 会被展平合并到顶层 en/zh。
+    """
+    if not isinstance(topics, dict):
+        return {"en": [], "zh": []}
+    en = list(topics.get("en") or [])
+    zh = list(topics.get("zh") or [])
+    for key, val in topics.items():
+        if key in ("en", "zh"):
+            continue
+        if isinstance(val, dict):
+            en.extend(val.get("en") or [])
+            zh.extend(val.get("zh") or [])
+    return {"en": _clean_keywords(en), "zh": _clean_keywords(zh)}
+
+
 def load_config(path: Path = CONFIG_PATH) -> dict:
     """加载 YAML 配置。失败时回退到 state/last_valid_config.yaml 并告警（PRD §3）。"""
     try:
@@ -66,13 +100,16 @@ def load_config(path: Path = CONFIG_PATH) -> dict:
         with open(LAST_VALID_CONFIG, "w") as f:
             yaml.dump(cfg, f, allow_unicode=True)
         cfg["_config_mtime"] = datetime.fromtimestamp(path.stat().st_mtime).strftime("%m-%d")
+        cfg["topics"] = normalize_topics(cfg.get("topics", {}))
         return cfg
     except Exception as exc:
         logger.error("Config load failed: %s", exc)
         if LAST_VALID_CONFIG.exists():
             logger.warning("Using last valid config: %s", LAST_VALID_CONFIG)
             with open(LAST_VALID_CONFIG) as f:
-                return yaml.safe_load(f)
+                cfg = yaml.safe_load(f)
+            cfg["topics"] = normalize_topics(cfg.get("topics", {}))
+            return cfg
         raise
 
 

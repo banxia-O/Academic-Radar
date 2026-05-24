@@ -8,11 +8,16 @@
 
 ## 0. TL;DR — 你最常做的三件事
 
-1. **首次接入**：引导用户给出研究方向 → 写入 `academic_radar_config.yaml` → 装 cron → 跑一次 `python3 radar_main.py` 验通
+1. **首次接入**：用户说出研究领域/方向 → **打开 `keyword_template.yaml`，照它的六层结构配关键词** → 写入 `academic_radar_config.yaml` → 装 cron → 跑一次 `python3 radar_main.py` 验通
 2. **关键词变更**：用户提到"加个新关键词 / 屏蔽某类文章" → **只改** `academic_radar_config.yaml`，不动代码
 3. **推送渠道切换**：改 `academic_radar_config.yaml` 里的 `push:` 段
 
 90% 的运维任务只动一个文件：`academic_radar_config.yaml`。
+
+> ⭐ **配关键词必读 `keyword_template.yaml`**：用户只会给一个笼统方向（如"我做 NUT 癌"）。
+> 你的工作是**先读这个模板文件**，照它的六层结构（疾病本体 / 药物 / 临床试验 / 机制 / 诊断标志物 / 排除词）
+> 把方向系统化展开成具体关键词，逐层和用户确认后写进配置。完整方法见 §2.6。
+> 别只问一句"你要哪些关键词"就完事——那样召回和精度都会很差。
 
 ---
 
@@ -47,6 +52,8 @@ pip install -r requirements.txt
 
 用户通常不会一次性给出结构化的关键词。**你需要主动提问，然后映射到 config 字段。**
 
+**第一件事：打开并通读 `keyword_template.yaml`。** 它是配关键词的脚手架——里面有六层结构和给你的填充指南。用户一旦说出领域/方向（哪怕只有一句"我做 XX"），你就照模板逐层展开成具体关键词，而不是反问用户"你想要哪些关键词"。具体方法见 §2.6。
+
 ### 2.1 推荐对话脚本
 
 按以下顺序逐项问，**不要一次问完**（用户会答得很笼统）：
@@ -55,13 +62,13 @@ pip install -r requirements.txt
 1. "你的研究方向是什么？用1-2句话描述，越具体越好。"
    → 写入 config.research_focus
 
-2. "在这个方向里，哪些英文关键词组合最能精准命中你想看的论文？
-    举例：'FLASH radiotherapy'、'immune checkpoint inhibitor radiation'。
-    多个关键词组合用空格连接代表 AND，每行一个独立 topic。"
-   → 写入 config.topics.en
+2. 关键词生成（**别只问一句就完事**）——用户给的方向往往笼统，
+   你要照 `keyword_template.yaml` 的**六层结构**系统化展开（疾病本体 / 药物干预 /
+   临床试验 / 机制通路 / 诊断标志物 / 排除词），逐层补全后向用户确认（详细方法见 §2.6）。
+   → 写入 config.topics（可直接用六层嵌套结构，load_config 会自动展平）
 
 3. "有需要追踪的中文关键词吗？（公众号、中文期刊、会议摘要等）"
-   → 写入 config.topics.zh（可以为空）
+   → 写入各层的 zh 子列表（可以为空）
 
 4. "有哪些作者或机构你特别关注？姓在前名缩写在后，如 'Smith A'。"
    → 写入 config.authors（可以为空）
@@ -99,6 +106,10 @@ pip install -r requirements.txt
 - 命中 `topics.en` **或** `authors` **任一即通过**；命中 `exclude` **任一即丢弃**
 
 如果用户希望 OR 关系，让他们写成多行（一行一个 topic）。
+
+**topics 结构**：下游只认 `topics.en` / `topics.zh` 两个扁平列表，但 `load_config()` 会在加载时
+把 `keyword_template.yaml` 的六层嵌套结构（disease/therapeutics/.../diagnostics 各带 en/zh）
+自动展平合并进去。所以你既可以写扁平的 `topics.en`/`topics.zh`，也可以写六层嵌套——两种都跑得通。
 
 ### 2.4 LLM 模型自查（步骤 7 展开）
 
@@ -226,6 +237,27 @@ schedule:
 
 脚本基于 `state/last_success_ts` 和 `frequency` **自我节流**：cron 触发后若距上次成功不足 `frequency × 0.9`，直接退出不抓。因此**多数频率只需装一个每天的 cron**，用户日后换频率（如 weekly → daily）**只改 config 不动 cron**。cron 模板与例外见 §4。
 
+### 2.6 关键词六层生成法（步骤 2 展开）
+
+用户给的研究方向通常笼统（"我做 NUT 癌"）。**别直接问一句关键词就完事**——照 `keyword_template.yaml` 的六层结构系统化展开，逐层补全，能显著提升召回与精度。
+
+| 层 | 内容 | 来源 / 要点 |
+|----|------|------------|
+| 1 疾病/领域本体 | 疾病标准名、亚型、基因特征、分期分型 | WHO 分类 / NCCN 命名 / ICD；缩写有歧义时加注释 |
+| 2 核心药物/干预 | 在研 + 已上市药物/技术 | 通用名、商品名、代号（如 NHWD-870）、靶点名；**覆盖同靶点竞品** |
+| 3 临床试验/联合方案 | 重要试验设计 | "药物A + 药物B"、"技术 + 瘤种 + clinical trial" |
+| 4 机制/通路 | 分子机制、信号通路 | 近 2 年高引综述核心通路；与用户其他兴趣的交叉点 |
+| 5 诊断/病理/标志物 | 诊断标准、分子检测、预后标志物 | IHC/FISH/NGS panel；新兴 biomarker |
+| 6 排除词 | 字面重叠但不相关的领域 | 歧义词、非人类研究、无关学科 |
+
+**生成规则**：
+- 英文为主中文为辅（PubMed/bioRxiv 以英文为主）；给用户看时英文检索词附中文翻译
+- 每层 3-15 个词，过多会引入噪音
+- 药物类尽量覆盖同靶点所有在研分子，不遗漏竞品
+- **生成后向用户逐层确认，排除词尤其要确认**（可能误伤）
+
+写入 config：可直接套用 `keyword_template.yaml` 的六层嵌套结构（`load_config()` 自动展平为 `topics.en`/`topics.zh`），也可手动收敛成扁平两列表。模板里的 `conferences` 段是给你参考的会议日历——会期内建议把 `schedule.frequency` 临时切 `every_4_hours`，会后切回。
+
 ---
 
 ## 3. 文件修改边界（务必遵守）
@@ -233,6 +265,7 @@ schedule:
 | 等级 | 文件 | 你能做什么 |
 |------|------|------------|
 | 🟢 **自由编辑** | `academic_radar_config.yaml` | 关键词、作者、排除词、推送渠道、API key、检索频率（`schedule`）、时区——全部用户可见配置都在这里。**99% 的用户需求都改这一个文件**。 |
+| 🟢 **模板，按需复制** | `keyword_template.yaml` | 关键词六层生成法的脚手架（见 §2.6）。引导用户时照它展开，填好把 topics/authors/exclude/schedule 段并入主配置。模板本身不参与运行。 |
 | 🟡 **谨慎编辑** | `processors/llm_scorer.py` 的 `build_prompt()` | 评分 prompt 模板。改的时候**必须保留反幻觉约束**（见下节）。改完跑一次 `python3 radar_main.py` 校验。 |
 | 🟡 **谨慎编辑** | `output/formatter.py` 的 `format_item()` | 推送展示格式。可以加字段、改 emoji，但**不能凭空生成 item 没有的字段**。 |
 | 🔴 **不要动** | `fetchers/*.py` | 数据源 API 契约。除非用户明确要求"加一个新数据源"或"某个 API 升级了"，否则不要碰。改坏一个 fetcher 会让该源全部失败。 |
