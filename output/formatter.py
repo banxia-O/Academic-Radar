@@ -65,6 +65,7 @@ def format_header(stats: FetchStats, since: datetime, until: datetime, hits: int
             f"S2: {stats.semantic_scholar_searched} | "
             f"OpenAlex: {stats.openalex_searched} | "
             f"bioRxiv: {biorxiv_total} | "
+            f"arXiv: {stats.arxiv_searched} | "
             f"X: {stats.x_searched} | "
             f"RSS: {stats.rss_processed}"
         ),

@@ -21,7 +21,7 @@ from models import Item
 
 logger = logging.getLogger(__name__)
 
-SOURCE_PRIORITY = ["pubmed", "semantic_scholar", "openalex", "biorxiv", "medrxiv", "rss", "x"]
+SOURCE_PRIORITY = ["pubmed", "semantic_scholar", "openalex", "biorxiv", "medrxiv", "arxiv", "rss", "x"]
 TITLE_SIMILARITY_THRESHOLD = 0.8
 
 

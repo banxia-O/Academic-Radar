@@ -52,6 +52,7 @@ sources:
   openalex: true
   biorxiv: true
   medrxiv: true
+  arxiv: true
   x_search: true
   rss: true
 

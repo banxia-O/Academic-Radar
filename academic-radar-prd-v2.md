@@ -66,6 +66,15 @@
 - 按日期范围批量拉取，返回 DOI、标题、作者、摘要、发布日期
 - 可检查是否已有正式发表版本（API 返回 `published` DOI 字段）
 
+**arXiv API（预印本，物理 / 医学物理 / 定量生物学）**
+
+- 接口：arXiv API（免费，无需认证），返回 Atom XML
+- 端点：`http://export.arxiv.org/api/query`
+- 按 topics 关键词检索，`sortBy=submittedDate` 倒序取最新，客户端按时间窗口过滤
+- 覆盖 bioRxiv/medRxiv 未触及的方向（如 FLASH 剂量学、蒙卡模拟、医学物理）
+- 含 `<arxiv:doi>` 字段者视为已有正式发表版（同 bioRxiv `published` 逻辑）
+- 礼仪：请求间隔 ≥ 3s
+
 **Crossref REST API（DOI 验证与元数据标准化）**
 
 - 接口：完全免费开放
@@ -80,7 +89,8 @@
 - Semantic Scholar：关键词检索 + fieldsOfStudy 过滤（Medicine, Biology）
 - OpenAlex：concept/topic 过滤 + 作者/机构追踪
 - bioRxiv/medRxiv：按日期范围全量拉取后本地关键词过滤（API 不支持复杂检索）
-- 去重顺序：PubMed > Semantic Scholar > OpenAlex > bioRxiv，按 DOI 合并，保留信息最全的版本
+- arXiv：关键词检索 + submittedDate 倒序，客户端按时间窗口过滤
+- 去重顺序：PubMed > Semantic Scholar > OpenAlex > bioRxiv > medRxiv > arXiv，按 DOI 合并，保留信息最全的版本
 
 #### 🟡 Tier 2：社交信号层（补充，非主力）
 
@@ -250,7 +260,7 @@ push:
 ```
 📡 学术雷达 05-22 08:00
 抓取范围：05-21 20:00 ~ 05-22 08:00
-PubMed: 23 | S2: 15 | OpenAlex: 31 | bioRxiv: 8 | X: 47 | RSS: 5
+PubMed: 23 | S2: 15 | OpenAlex: 31 | bioRxiv: 8 | arXiv: 6 | X: 47 | RSS: 5
 命中: 7 条
 
 ———
@@ -358,6 +368,7 @@ academic-radar/
 │   ├── semantic_scholar_fetcher.py # Semantic Scholar Graph API
 │   ├── openalex_fetcher.py         # OpenAlex API
 │   ├── biorxiv_fetcher.py          # bioRxiv/medRxiv API
+│   ├── arxiv_fetcher.py            # arXiv API（Atom XML）
 │   ├── x_fetcher.py                # X 平台检索（可选）
 │   └── rss_fetcher.py              # RSS 拉取
 ├── processors/
@@ -409,7 +420,8 @@ academic-radar/
 | PubMed | 3600 万+ | 免费 | 可选 | ⭐⭐⭐⭐⭐ | 生物医学金标准 |
 | Semantic Scholar | 2 亿+ | 免费 | 可选 | ⭐⭐⭐⭐ | 引文分析、TLDR |
 | OpenAlex | 4.7 亿+ | 免费 | 不需要 | ⭐⭐⭐⭐ | 最广覆盖、机构追踪 |
-| bioRxiv/medRxiv | 持续增长 | 免费 | 不需要 | ⭐⭐⭐⭐ | 预印本第一时间 |
+| bioRxiv/medRxiv | 持续增长 | 免费 | 不需要 | ⭐⭐⭐⭐ | 生物医学预印本第一时间 |
+| arXiv | 240 万+ | 免费 | 不需要 | ⭐⭐⭐ | 医学物理 / 定量生物预印本 |
 | Crossref | 1.5 亿+ | 免费 | 不需要 | — | DOI 验证与元数据 |
 | X 平台 | — | 取决于接入方式 | 取决于接入方式 | — | 学术讨论、会议实况 |
 

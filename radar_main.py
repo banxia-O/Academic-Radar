@@ -21,6 +21,7 @@ from pathlib import Path
 import yaml
 
 from fetchers import (
+    arxiv_fetcher,
     biorxiv_fetcher,
     openalex_fetcher,
     pubmed_fetcher,
@@ -175,6 +176,7 @@ def fetch_all(config: dict, since: datetime, until: datetime, stats: FetchStats)
     _safe("pubmed", pubmed_fetcher.fetch, "pubmed_searched")
     _safe("semantic_scholar", semantic_scholar_fetcher.fetch, "semantic_scholar_searched")
     _safe("openalex", openalex_fetcher.fetch, "openalex_searched")
+    _safe("arxiv", arxiv_fetcher.fetch, "arxiv_searched")
     _safe("x_search", x_fetcher.fetch, "x_searched")
     _safe("rss", rss_fetcher.fetch, "rss_processed")
 

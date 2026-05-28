@@ -52,6 +52,7 @@ class FetchStats:
     openalex_searched: int = 0
     biorxiv_searched: int = 0
     medrxiv_searched: int = 0
+    arxiv_searched: int = 0
     x_searched: int = 0
     rss_processed: int = 0
     manual_processed: int = 0
